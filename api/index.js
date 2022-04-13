@@ -6,7 +6,7 @@ const config = require('config')
 app.use(bodyParser.json)
 
 app.use('/api/fornecedores', (requisicao, resposta) => {
-
+    
 })
 
 app.listen(config.get('api.porta'), () => console.log('A API está funcionando!'))
