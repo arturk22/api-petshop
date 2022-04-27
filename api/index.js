@@ -1,79 +1,69 @@
-const roteador = require('express').Router()
-const TabelaFornecedor = require('./TabelaFornecedor')
-const Fornecedor = require('./Fornecedor')
-const SerializadorFornecedor = require('../../Serializador').SerializadorFornecedor
+const express = require('express')
+const app = express()
+const bodyParser = require('body-parser')
+const config = require('config')
+const NaoEncontrado = require('./erros/NaoEncontrado')
+const CampoInvalido = require('./erros/CampoInvalido')
+const DadosNaoFornecidos = require('./erros/DadosNaoFornecidos')
+const ValorNaoSuportado = require('./erros/ValorNaoSuportado')
+const formatosAceitos = require('./Serializador').formatosAceitos
+const SerializadorErro = require('./Serializador').SerializadorErro
 
-roteador.get('/', async (requisicao, resposta) => {
-    const resultados = await TabelaFornecedor.listar()
-    resposta.status(200)
-    const serializador = new SerializadorFornecedor(
+app.use(bodyParser.json())
+
+app.use((requisicao, resposta, proximo) => {
+    let formatoRequisitado = requisicao.header('Accept')
+
+    if (formatoRequisitado === '*/*') {
+        formatoRequisitado = 'application/json'
+    }
+
+    if (formatosAceitos.indexOf(formatoRequisitado) === -1) {
+        resposta.status(406)
+        resposta.end()
+        return
+    }
+
+    resposta.setHeader('Content-Type', formatoRequisitado)
+    proximo()
+})
+
+app.use((requisicao, resposta, proximo) => {
+    resposta.set('Access-Control-Allow-Origin', '*')
+    proximo()
+})
+
+const roteador = require('./rotas/fornecedores')
+app.use('/api/fornecedores', roteador)
+
+const roteadorV2 = require('./rotas/fornecedores/rotas.v2')
+app.use('/api/v2/fornecedores', roteadorV2)
+
+app.use((erro, requisicao, resposta, proximo) => {
+    let status = 500
+
+    if (erro instanceof NaoEncontrado) {
+        status = 404
+    }
+
+    if (erro instanceof CampoInvalido || erro instanceof DadosNaoFornecidos) {
+        status = 400
+    }
+
+    if (erro instanceof ValorNaoSuportado) {
+        status = 406
+    }
+
+    const serializador = new SerializadorErro(
         resposta.getHeader('Content-Type')
     )
+    resposta.status(status)
     resposta.send(
-        serializador.serializar(resultados)
+        serializador.serializar({
+            mensagem: erro.message,
+            id: erro.idErro
+        })
     )
 })
 
-roteador.post('/', async (requisicao, resposta, proximo) => {
-    try {
-        const dadosRecebidos = requisicao.body
-        const fornecedor = new Fornecedor(dadosRecebidos)
-        await fornecedor.criar()
-        resposta.status(201)
-        const serializador = new SerializadorFornecedor(
-            resposta.getHeader('Content-Type')
-        )
-        resposta.send(
-            serializador.serializar(fornecedor)
-        )
-    } catch (erro) {
-        proximo(erro)
-    }
-})
-
-roteador.get('/:idFornecedor', async (requisicao, resposta, proximo) => {
-    try {
-        const id = requisicao.params.idFornecedor
-        const fornecedor = new Fornecedor({ id: id })
-        await fornecedor.carregar()
-        resposta.status(200)
-        const serializador = new SerializadorFornecedor(
-            resposta.getHeader('Content-Type'),
-            ['email', 'dataCriacao', 'dataAtualizacao', 'versao']
-        )
-        resposta.send(
-            serializador.serializar(fornecedor)
-        )
-    } catch (erro) {
-        proximo(erro)
-    }
-})
-
-roteador.put('/:idFornecedor', async (requisicao, resposta, proximo) => {
-    try {
-        const id = requisicao.params.idFornecedor
-        const dadosRecebidos = requisicao.body
-        const dados = Object.assign({}, dadosRecebidos, { id: id })
-        const fornecedor = new Fornecedor(dados)
-        await fornecedor.atualizar()
-        resposta.status(204)
-        resposta.end()
-    } catch (erro) {
-        proximo(erro)
-    }
-})
-
-roteador.delete('/:idFornecedor', async (requisicao, resposta, proximo) => {
-    try {
-        const id = requisicao.params.idFornecedor
-        const fornecedor = new Fornecedor({ id: id })
-        await fornecedor.carregar()
-        await fornecedor.remover()
-        resposta.status(204)
-        resposta.end()
-    } catch (erro) {
-        proximo(erro)
-    }
-})
-
-module.exports = roteador
+app.listen(config.get('api.porta'), () => console.log('A API está funcionando!'))
